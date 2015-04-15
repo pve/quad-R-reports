@@ -1,11 +1,12 @@
-# comment
 # Extracting and processing temperature sensor data.
 
-# Extraction phase
+# Extraction phase; leads to dataframes
 Sys.setlocale("LC_TIME",  "en_US.UTF-8")
 outside = read.delim("~/MyRproject/Quadfiles/weatherreport11april2015.txt", sep = ":", header = FALSE)
+# TODO use KNMI data. 
 sensordata <- read.csv("~/quad-R-reports/alldata.csv", header=FALSE)
-names(outside) <- c("V1", "V2", "V3", "extT")
+names(outside) <- c("V1", "V2", "reading", "extT")
+names(sensordata) <- c("source", "timestamp", "reading")
 
 # Transformation phase
 
@@ -13,18 +14,18 @@ names(outside) <- c("V1", "V2", "V3", "extT")
 Sys.setlocale("LC_TIME",  "en_US.UTF-8")
 outside$POSIX <- as.POSIXct(strptime(outside$V1, "%B %d, %Y"))
 # we want full timestamps, so no as.Date(outside$V1, "%B %d, %Y")
-# Dates without times are treated as being at midnight UTC. this is going to hurt us with summertime.
 
 # sensordata date format "2014-05-25 00:03:07"
-sensordata$POSIX <- as.POSIXct(strptime(sensordata$V2, "%Y-%m-%d %H:%M:%S"))
+# as.POSIXct(strptime("2014-05-25 00:03:07", "%Y-%m-%d %H:%M:%S"))
+sensordata$POSIX <- as.POSIXct(strptime(sensordata$timestamp, "%Y-%m-%d %H:%M:%S"))
 daysinrange <- cut(sensordata$POSIX, "day")
 range(sensordata$POSIX)
-#as.factor(sensordata$V1)
 
-Delta <- subset(sensordata, V1 == "Delta" & V3 >=-2 & V3 <100)
-Board <- subset(sensordata, V1 == "Board" & V3 >=-2 & V3 <100)
-Heating <- subset(sensordata, V1 == "Heating" & V3 >=-2 & V3 <100)
-Return <- subset(sensordata, V1 == "Return" & V3 >=-2 & V3 <100)
+Delta <- subset(sensordata, source == "Delta" & reading >=-2 & reading <100)
+Board <- subset(sensordata, source == "Board" & reading >=-2 & reading <100)
+Heating <- subset(sensordata, source == "Heating" & reading >=-2 & reading <100)
+Return <- subset(sensordata, source == "Return" & reading >=-2 & reading <100)
+# TODO fix systematic bias on sensors Heating and Return; Return seems to be too high.
 
 range(Delta$POSIX)
 range(Board$POSIX)
@@ -41,31 +42,41 @@ range(outside$POSIX)
 
 # consolidation / summaries
 
-deltabyday <- cut(Delta$POSIX, "day") # creates factor out of date. 
-d <- aggregate(Delta[c("V3")], list(deltabyday), mean)
-d$POSIX <-as.POSIXct(d$Group.1) # messed up by summertime.
+deltabyday <- cut(Delta$POSIX, "DSTday") # creates factor out of date. 
+d <- aggregate(Delta[c("reading")], list(deltabyday), mean)
+d$POSIX <-as.POSIXct(d$Group.1) # messed up by summertime. One of the dates is not 24 hours?
 # Combination
 
-
-# bd <- merge(Board, Delta, by="POSIX", all = TRUE)
-# moet herhaald worden voor alle frames
-
-# compute delta, issue: error in one wil bias result.
+# compute delta i.e. differential between influx temp and outflux temp, issue: error in one wil bias result.
 hr <-merge(Heating, Return, by = c("POSIX"))
-hr$diff <- hr$V3.x - hr$V3.y
+hr$diff <- hr$reading.x - hr$reading.y
 range(hr$diff)
-# View(subset(hr, hr$diff < -5))
+#View(subset(hr, (hr$diff < -5) & (as.Date(hr$POSIX) == "2014-01-10")))
+#View(subset(hr, (as.Date(hr$POSIX) == "2014-01-10")))
 # View(subset(hr, hr$diff > 60))
 
-#od <- merge(d, outside, by = "POSIX", all = TRUE)
-od <- merge(d, outside, all = TRUE)
+hr <- subset(hr, hr$diff > -5 & hr$diff < 60 )
+#filter out diff < -5, > 60
 
+deltabyday <- cut(hr$POSIX, "DSTday") # creates factor out of date. 
+d <- aggregate(hr[c("diff")], list(deltabyday), mean)
+d$POSIX <-as.POSIXct(d$Group.1)
+
+od <- merge(d, outside, by = "POSIX")
+#od <- merge(hr, outside, all = TRUE)
+range(od$POSIX)
+#od$leakage <- min(0, 20 - od$extT)/od$diff
 # wat we nu willen hebben is de verhouding tussen min(0, 20-buitentemp) en de hoeveel stook (mean diff).
+od$heatloss <- od$diff/ (19 - od$extT)
+#plot(od$POSIX, min(0, 20 - od$extT)/od$diff, type = "s")
+
+plot(od$POSIX, od$heatloss, type="s")
+points(od$POSIX, od$extT, type="s")
 
 # Presentation
 plot(hr$POSIX, hr$diff, type = "s")
 
-plot(od$POSIX, od$V3, type = "s", col="red") # Delta
+plot(od$POSIX, od$diff, type = "s", col="red") # Delta
 plot(od$POSIX, od$extT, type = "s")
 
 plot(outside$POSIX, outside$extT, type = "l")
@@ -73,18 +84,18 @@ hist(outside$extT)
 range(outside$POSIX)
 range(outside$V4)
 
-plot(Delta$POSIX, Delta$V3, type = "s", col="red")
-points(Board$POSIX, Board$V3, type = "s")
-mean(Delta$V3)
+plot(Delta$POSIX, Delta$reading, type = "s", col="red")
+points(Board$POSIX, Board$reading, type = "s")
+mean(Delta$reading)
 
 
 x <- by(Delta, daysinrange, mean)
 d <- aggregate(Delta, list(daysinrange), mean)
-plot(x$Group.1, x$V3, type = "l")
-plot(d$Group.1, d$V3, type = "l")
+plot(x$Group.1, x$reading, type = "l")
+plot(d$Group.1, d$reading, type = "l")
 
 daysinrange <- cut(Board$POSIX, "day")
 b <- aggregate(Board, list(daysinrange), mean)
-# b<- tapply(Board$V3, daysinrange, mean)
+# b<- tapply(Board$reading, daysinrange, mean)
 
-plot(b$Group.1, b$V3, type = "s")
+plot(b$Group.1, b$reading, type = "s")
