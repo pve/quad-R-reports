@@ -9,4 +9,4 @@
 vignettes/*.html
 vignettes/*.pdf
 .Rproj.user
-alldata.csv
+*.csv
