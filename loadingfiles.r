@@ -9,13 +9,13 @@ names(outside) <- c("V1", "V2", "reading", "extT")
 
 doubleglazing <- as.POSIXct(strptime("2014-01-28 16:03:07", "%Y-%m-%d %H:%M:%S"))
 
-# TODO use KNMI data. 
 sensordata <- read.csv("~/quad-R-reports/alldata.csv", header=FALSE)
 names(sensordata) <- c("source", "timestamp", "reading")
 
 # Transformation and cleaning phase
 
 # Weather data
+# TODO use KNMI data instead of Yahoo weather data
 # example format weatherreport as.POSIXct(strptime("November 22, 2013 at 06", "%B %d, %Y"))
 Sys.setlocale("LC_TIME",  "en_US.UTF-8")
 outside$POSIX <- as.POSIXct(strptime(outside$V1, "%B %d, %Y"))
@@ -54,8 +54,11 @@ Room <- subset(sensordata, source == "Room" & reading >=0 & reading <100)
 hr <-merge(Heating, Return, by = c("POSIX")) #ignoring points where one reading is missing
 # TODO fix systematic bias on sensors Heating and Return; Return seems to be too high.
 #somewhat random adjustment to account for different nul levels
-hr$diff <- hr$reading.x - hr$reading.y -0.5
+#as estimated by mean over July
+hr$diff <- hr$reading.x - hr$reading.y +0.37
+
 range(hr$diff)
+#hist(hr$diff, xlim = c(-10, 20), breaks = 200)
 #View(subset(hr, (hr$diff < -5) & (as.Date(hr$POSIX) == "2014-01-10")))
 
 hr <- subset(hr, hr$diff > 0 & hr$diff < 60 )
@@ -77,11 +80,11 @@ od <- merge(temp, gooddeltadays, by = "POSIX")
 range(od$POSIX)
 #od$leakage <- min(0, 20 - od$extT)/od$diff
 # wat we nu willen hebben is de verhouding tussen min(0, 20-buitentemp) en de hoeveel stook (mean diff).
-od$heatloss <- od$diff/ (17 - od$extT)
+od$heatloss <- od$diff/ (15 - od$extT)
 #plot(od$POSIX, min(0, 20 - od$extT)/od$diff, type = "s")
 
-#ignore high heatloss
-odd <- subset(od, heatloss <0.9 & extT <15)
+#ignore high heatloss and negative heatloss
+odd <- subset(od, heatloss <0.9 & heatloss >=0 & extT <14)
 odd1 <- subset(odd, POSIX < doubleglazing)
 odd2 <- subset(odd, (POSIX > as.POSIXct("2014-12-13")) & (POSIX < as.POSIXct("2015-01-28")))
 
@@ -90,7 +93,7 @@ deltabyweek <- cut(odd$POSIX, "week") # creates factor out of date.
 dw <- aggregate(odd[c("heatloss")], list(deltabyweek), mean)
 dw$POSIX <-as.POSIXct(dw$Group.1)
 #weekly heatloss average
-plot(dw$POSIX, dw$heatloss, type="s")
+plot(dw$POSIX, dw$heatloss, type="s", xlab="Date", ylab="Heat loss coefficient")
 
 #nighttemperature of room
 Room$hour <- as.POSIXlt(Room$POSIX)$hour
@@ -110,8 +113,8 @@ board24byweek <- aggregate(boardatmidnight[c("reading")], list(bamf), mean)
 # Presentation
 #plot(od$POSIX, od$heatloss)
 plot(odd$POSIX, odd$heatloss)
-points(odd$POSIX, odd$extT/20, type="s", col ="red")
-points(doubleglazing, 0.5, col="red")
+points(odd$POSIX, odd$extT/20.0, type="s", col ="red")
+points(doubleglazing, 0.3, col="red")
 #scatterplots
 plot(odd$extT, odd$diff)
 plot(odd$extT, odd$heatloss)
